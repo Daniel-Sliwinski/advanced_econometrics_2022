@@ -1,0 +1,239 @@
+
+###########################################################################
+#		Advanced Econometrics                                                 #
+#   Spring semester                                                       #
+#   dr Marcin Chlebus, dr Rafa? Wo?niak                                   #
+#   University of Warsaw, Faculty of Economic Sciences                    #
+#                                                                         #
+#                 Labs 2: Panel data models                               #
+#                                                                         #
+###########################################################################
+
+
+# This file is based on:
+# 1. Getting Started in Fixed/Random Effects Models using R(ver. 0.1-Draft), 
+#    Oscar Torres-Reyna, Princeton University
+# 2. Ch.F. Baum, Introduction to Modern Exconometrics Using Stata, Stata Press, 2006.
+# 3. A.C. Cameron, P.K. Trivedi, Microeconometrics Using Stata, Stata Press, 2010.
+# 4. R.C. Hill, W.E. Griffiths, G.C. Lim, Principles of Econometrics, 3rd Ed., 2008.
+
+install.packages("plm")
+install.packages("Formula")
+install.packages("stargazer")
+
+# -----------------------------------------------------------------------------------
+# Code
+# -----------------------------------------------------------------------------------
+
+setwd("C:\\Users\\Rafal\\WNE\\Advanced_Econometrics\\AE_Lab_02")
+Sys.setenv(LANG = "en")
+options(scipen=999)
+
+library("MASS")
+library("sandwich")
+library("zoo")
+library("car")
+library("lmtest")
+library("Formula")
+library("plm")
+library("stargazer")
+
+# ------------------------------------------------------------------------------
+# Exercise 1
+# Fixed effects model
+# ------------------------------------------------------------------------------
+
+traffic = read.csv(file="traffic.csv", sep=",", header=TRUE)
+
+fixed <-plm(fatal~beertax+spircons+unrate+perincK, data=traffic, 
+            index=c("state", "year"), model="within")
+summary(fixed)
+
+fixef(fixed)
+ols<-lm(fatal~beertax+spircons+unrate+perincK, data=traffic)
+# Pooled OLS == POLS
+# Simple regression model used for panel data set.
+# Biased and inconsistent estimates!
+# Autocorrelation and heteroskedasticity problems
+
+# tests for poolability
+pFtest(fixed, ols)
+
+# Testing for serial correlation
+pbgtest(fixed)
+
+# Testing for heteroskedasticity
+bptest(fatal~beertax+spircons+unrate+perincK, data=traffic, studentize=T)
+
+# Controlling for heteroskedasticity and autocorrelation:
+coeftest(fixed, vcov.=vcovHC(fixed, method="white1", type="HC0", cluster="group"))
+
+
+# ------------------------------------------------------------------------------
+# Exercise 2
+# Random effects model
+# ------------------------------------------------------------------------------
+
+rice = read.csv(file="rice.csv", sep=",", header=TRUE)
+
+random <-plm(prod~area+labor+fert, data=rice, 
+             index=c("firm", "year"), model="random")
+summary(random)
+
+fixed <-plm(prod~area+labor+fert, data=rice, 
+            index=c("firm", "year"), model="within")
+summary(fixed)
+
+fixed.time <-plm(prod~area+labor+fert+factor(year), data=rice, 
+                 index=c("firm", "year"), model="within")
+summary(fixed.time)
+
+POLS <-plm(prod~area+labor+fert, data=rice, 
+          index=c("firm", "year"), model="pooling")
+summary(POLS)
+
+#hausmann test
+phtest(fixed, random)
+
+#individual effects for random effects?
+plmtest(POLS, type=c("bp"))
+
+#individual effects for fixed effects?
+pFtest(fixed, POLS)
+
+#test for time effects
+pFtest(fixed.time, fixed)
+plmtest(fixed, c("time"), type=("bp"))
+
+# Testing for serial correlation
+pbgtest(random)
+
+# Testing for heteroskedasticity
+bptest(fatal~beertax+spircons+unrate+perincK, data=traffic, studentize=TRUE)
+
+
+# ------------------------------------------------------------------------------
+# Exercise 3
+# Dancing with the Stars
+# ------------------------------------------------------------------------------
+
+dancing = read.csv(file="dancingwiththestars.csv", header=TRUE, sep=",")
+
+random <-plm(score~judgexp+ppepisodexp, data=dancing, 
+             index=c("team", "time"), model="random")
+summary(random)
+
+fixed <-plm(score~judgexp+ppepisodexp, data=dancing, 
+            index=c("team", "time"), model="within")
+summary(fixed)
+
+phtest(fixed, random)
+
+stargazer(fixed, random, title="Results", align=TRUE, type="text")
+
+# ------------------------------------------------------------------------------
+# Exercise 4
+# Grunfeld data
+# ------------------------------------------------------------------------------
+
+data("Grunfeld", package="plm")
+
+plm(formula = inv ~ value + capital, data = Grunfeld, 
+    model = "...", index = c("firm", "year"))
+
+
+# ------------------------------------------------------------------------------
+# Exercise 5
+# General-to-specific procedure
+# ------------------------------------------------------------------------------
+
+crime = read.csv(file="crime.csv", header=TRUE, sep=",")
+# alternatively
+crime = pdata.frame(crime.all, index=c("county", "year"))
+View(crime)
+
+# -----------------------------------------------------------------------
+# Step 1
+# -----------------------------------------------------------------------
+
+# general model
+fixed = plm(lcrmrte~lprbarr+lprbconv+lprbpris+lavgsen+lpolpc+ldensity+ltaxpc+lwcon+lwfir,
+            data=crime, model="within")
+summary(fixed)
+
+
+# -----------------------------------------------------------------------
+# Step 2
+# -----------------------------------------------------------------------
+# general model without ldensity
+fixed = plm(lcrmrte~lprbarr+lprbconv+lprbpris+lavgsen+lpolpc+ltaxpc+lwcon+lwfir,
+            data=crime, index=c("county", "year"), model="within")
+summary(fixed)
+
+# general model
+fixed = plm(lcrmrte~lprbarr+lprbconv+lprbpris+lavgsen+lpolpc+ldensity+ltaxpc+lwcon+lwfir,
+            data=crime, index=c("county", "year"), model="within")
+summary(fixed)
+
+# ldensity and ltaxpc
+h <- rbind(c(0,0,0,0,0,1,0,0,0), c(0,0,0,0,0,0,1,0,0))
+wald.test.results = wald.test(b = coef(fixed), Sigma = vcov(fixed), L = h)
+wald.test.results
+
+
+# -----------------------------------------------------------------------
+# Step 3
+# -----------------------------------------------------------------------
+# general model without ldensity and ltaxpc
+fixed = plm(lcrmrte~lprbarr+lprbconv+lprbpris+lavgsen+lpolpc+lwcon+lwfir,
+            data=crime, index=c("county", "year"), model="within")
+summary(fixed)
+
+# general model
+fixed = plm(lcrmrte~lprbarr+lprbconv+lprbpris+lavgsen+lpolpc+ldensity+ltaxpc+lwcon+lwfir,
+            data=crime, index=c("county", "year"), model="within")
+summary(fixed)
+
+# ldensity and ltaxpc
+h <- rbind(c(0,0,0,0,0,1,0,0,0), c(0,0,0,0,0,0,1,0,0), c(0,0,0,1,0,0,0,0,0))
+wald.test.results = wald.test(b = coef(fixed), Sigma = vcov(fixed), L = h)
+wald.test.results
+
+
+# -----------------------------------------------------------------------
+# Step 4
+# -----------------------------------------------------------------------
+# general model without ldensity and ltaxpc and lavgsen
+fixed = plm(lcrmrte~lprbarr+lprbconv+lprbpris+lpolpc+lwcon+lwfir,
+            data=crime, index=c("county", "year"), model="within")
+summary(fixed)
+
+# general model
+fixed = plm(lcrmrte~lprbarr+lprbconv+lprbpris+lavgsen+lpolpc+ldensity+ltaxpc+lwcon+lwfir,
+            data=crime, index=c("county", "year"), model="within")
+summary(fixed)
+
+# ldensity and ltaxpc
+h <- rbind(c(0,0,0,0,0,1,0,0,0), c(0,0,0,0,0,0,1,0,0), c(0,0,0,1,0,0,0,0,0), c(0,0,0,0,0,0,0,0,1))
+wald.test.results = wald.test(b = coef(fixed), Sigma = vcov(fixed), L = h)
+wald.test.results
+
+# lwfir might be removed from the model
+
+# -----------------------------------------------------------------------
+# Step 5
+# -----------------------------------------------------------------------
+# general model without ldensity and ltaxpc and lavgsen and lwfir
+fixed = plm(lcrmrte~lprbarr+lprbconv+lprbpris+lpolpc+lwcon,
+            data=crime, index=c("county", "year"), model="within")
+summary(fixed)
+
+# general model
+fixed = plm(lcrmrte~lprbarr+lprbconv+lprbpris+lavgsen+lpolpc+ldensity+ltaxpc+lwcon+lwfir,
+            data=crime, index=c("county", "year"), model="within")
+summary(fixed)
+
+# ldensity and ltaxpc
+h <- rbind(c(0,0,0,0,0,1,0,0,0), c(0,0,0,0,0,0,1,0,0), c(0,0,0,1,0,0,0,0,0), c(0,0,0,0,0,0,0,0,1))
+wald.test.results = wald.test(b = coef(fixed), Sigma = vcov(fixed), L = h)
+wald.test.results
