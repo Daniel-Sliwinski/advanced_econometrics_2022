@@ -1,4 +1,4 @@
-packages <- c("plm", "Formula", "stargazer", "tidyverse", "MASS", "sandwich", "lmtest", "rpart", "rpart.plot")
+packages <- c("plm", "Formula", "stargazer", "tidyverse", "MASS", "sandwich", "lmtest", "rpart", "rpart.plot", "aod")
 
 # Install packages not yet installed
 installed_packages <- packages %in% rownames(installed.packages())
@@ -53,20 +53,24 @@ data_full <- data_full %>%
     )
   )
 data_full$empl <- as.factor(data_full$empl)
-data_full1 <- data_full[ , !(names(data_full) %in% c("year_born", "wave", "occupation", "reason_none_worker", "company_size"))]
 
-fixed <-plm(income~family_member + gender + education_level + marriage + religion + empl + age, data=data_full1, 
+data_full$married_flg <- as.factor(ifelse(data_full$marriage == 2, 1, 0))
+
+data_full1 <- data_full[ , !(names(data_full) %in% c("year_born", "wave", "occupation", "reason_none_worker", "company_size", "marriage"))]
+
+# Building the models
+fixed <-plm(income~family_member + gender + education_level + married_flg + religion + empl + age, data=data_full1, 
             index=c("id","year"), model="within")
 summary(fixed)
 
-fixed.time <-plm(income~family_member + gender + education_level + marriage + religion + empl + age + factor(year), data=data_full1, 
+fixed.time <-plm(income~family_member + gender + education_level + married_flg + religion + empl + age + factor(year), data=data_full1, 
             index=c("id","year"), model="within")
 summary(fixed.time)
 
-rand <-plm(income~family_member+gender+year_born+education_level+ marriage+ religion+ occupation + company_size, data=data, 
+rand <-plm(income~family_member + gender + education_level + married_flg + religion + empl + age, data=data_full1, 
             index=c("id","year"), model="random")
 summary(rand)
-pooled <-plm(income~family_member+gender+year_born+education_level+ marriage+ religion+ occupation + company_size, data=data, 
+pooled <-plm(income~family_member + gender + education_level + married_flg + religion + empl + age, data=data_full1, 
             index=c("id","year"), model="pooling")
 summary(pooled)
 
@@ -90,12 +94,41 @@ plmtest(fixed, c("time"), type=("bp"))
 # Testing for serial autocorelation
 pbgtest(fixed)
 # Testing for heteroskedasticity
-bptest(income~family_member + gender + education_level + marriage + religion + empl + age, data=data_full1, studentize=T)
+bptest(income~family_member + gender + education_level + married_flg + religion + empl + age, data=data_full1, studentize=T)
 
+# There is a need to use the robust variance covariance matrix
+coeftest(fixed, vcov.=vcovHC(fixed, method="white1", type="HC0", cluster="group"))
 
 # GETS procedure
-fixed_1 <-plm(income~family_member + gender + education_level + marriage + empl + age, data=data_full1, 
+# Step 1: removing religion variable, as according to robust var/covar matrix all its levels are insignificant
+fixed_1 <-plm(income~family_member + gender + education_level + married_flg + empl + age, data=data_full1, 
             index=c("id","year"), model="within")
 summary(fixed_1)
+coeftest(fixed_1, vcov.=vcovHC(fixed_1, method="white1", type="HC0", cluster="group"))
 
-pFtest(fixed, fixed_1)
+# religion
+h <- rbind(c(0,0,0,0,0,0,0,0,0,0,1,0,0,0,0))
+wald.test.results = wald.test(b = coef(fixed), Sigma = vcovHC(fixed, method="white1", type="HC0", cluster="group"), L=h)
+wald.test.results
+# We can not reject the H0 of the Wald test, and therefore we can remove the variable religion
+
+# Step 2: removing married_flg variable, as according to robust var/covar matrix all its levels are insignificant
+fixed_2 <-plm(income~family_member + gender + education_level + empl + age, data=data_full1, 
+              index=c("id","year"), model="within")
+summary(fixed_2)
+coeftest(fixed_2, vcov.=vcovHC(fixed_2, method="white1", type="HC0", cluster="group"))
+
+# married_flg
+h <- rbind(c(0,0,0,0,0,0,0,0,0,0,1,0,0,0,0), c(0,0,0,0,0,0,0,0,0,1,0,0,0,0,0))
+wald.test.results = wald.test(b = coef(fixed), Sigma = vcovHC(fixed, method="white1", type="HC0", cluster="group"), L=h)
+wald.test.results
+# We can not reject the H0 of the Wald test, and therefore we can remove the variable married_flg
+
+# Struktura:
+#   - wstęp o problemie i ogólnie o zbiorze danych
+#   -przegląd literatury
+#   - Omówienie danych (zmiany które robiliśmy, słowniki, macierz korelacji)
+#   - Jak wybraliśmy model
+#   - procedura GETS
+#   - interpretacja i omówienie wyników
+
