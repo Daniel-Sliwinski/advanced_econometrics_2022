@@ -28,7 +28,8 @@ table(data$year)
 # data_1 <- filter(data, data$year >= 2008)
 # full_ids <- data_1 %>% group_by(id) %>% summarise(n = n()) %>% filter(n == 11)
 # data_full <- filter(data_1, data_1$id %in% full_ids$id)
-data_full <- data_1
+data_full <- data
+data_full$religion <- ifelse(data_full$religion == 9, 1, data_full$religion)
 table(data_full$year)
 
 data_full$region <- as.factor(data_full$region)
@@ -48,29 +49,33 @@ data_full <- data_full %>%
     empl = case_when(
       is.na(company_size) ~ 0,
       company_size < 2    ~ 1,
-      company_size < 9    ~ 2,
-      company_size >= 9   ~ 3,
+      company_size < 8    ~ 2,
+      company_size >= 8   ~ 3,
     )
   )
+
 data_full$empl <- as.factor(data_full$empl)
 
 data_full$married_flg <- as.factor(ifelse(data_full$marriage == 2, 1, 0))
 
 data_full1 <- data_full[ , !(names(data_full) %in% c("year_born", "wave", "occupation", "reason_none_worker", "company_size", "marriage"))]
 
+data_full1 <- filter(data_full1, data_full1$income > 0)
+data_full1$income_ln <- log(data_full1$income)
+
 # Building the models
-fixed <-plm(income~family_member + education_level + married_flg + religion + empl + age + I(family_member^2) + married_flg*age, data=data_full1, 
+fixed <-plm(income_ln~family_member + education_level + married_flg + religion + region + empl + age + I(family_member^2) + married_flg*age, data=data_full1, 
             index=c("id","year"), model="within")
 summary(fixed)
 
-fixed.time <-plm(income~family_member + education_level + married_flg + religion + empl + age + I(family_member^2) + married_flg*age + factor(year), data=data_full1, 
+fixed.time <-plm(income_ln~family_member + education_level + married_flg + religion + region + empl + age + I(family_member^2) + married_flg*age + factor(year), data=data_full1, 
             index=c("id","year"), model="within")
 summary(fixed.time)
 
-rand <-plm(income~family_member + education_level + married_flg + religion + empl + age + I(family_member^2) + married_flg*age, data=data_full1, 
+rand <-plm(income_ln~family_member + education_level + married_flg + religion + region + empl + age + I(family_member^2) + married_flg*age, data=data_full1, 
             index=c("id","year"), model="random")
 summary(rand)
-pooled <-plm(income~family_member + education_level + married_flg + religion + empl + age + I(family_member^2) + married_flg*age, data=data_full1, 
+pooled <-plm(income_ln~family_member + education_level + married_flg + religion + region + empl + age + I(family_member^2) + married_flg*age, data=data_full1, 
             index=c("id","year"), model="pooling")
 summary(pooled)
 
@@ -95,106 +100,140 @@ plmtest(fixed, c("time"), type=("bp"))
 pbgtest(fixed)
 # its there
 # Testing for heteroskedasticity
-bptest(income~family_member + education_level + married_flg + religion + empl + age + I(family_member^2) + married_flg*age, data=data_full1, studentize=T)
+bptest(income_ln~family_member + education_level + married_flg + religion + region + empl + age + I(family_member^2) + married_flg*age, data=data_full1, studentize=T)
 # also there
 
 # There is a need to use the robust variance covariance matrix
 coeftest(fixed, vcov.=vcovHC(fixed, method="white1", type="HC0", cluster="group"))
 
 # GETS procedure
-# Step 1: removing religion variable , as according to robust var/covar matrix it's insignificant
-fixed_1 <-plm(income~family_member + education_level + married_flg + empl + age + I(family_member^2) + married_flg*age, data=data_full1, 
+# Step 1: removing region = 2 level , as according to robust var/covar matrix it's insignificant
+data_full1$region_a <- as.factor(ifelse(data_full1$region == 2, 1, data_full1$region))
+levels(data_full1$region_a) <- c(1,3,4,5,6,7)
+table(data_full1$region_a)
+
+fixed_1 <-plm(income_ln~family_member + education_level + married_flg + religion + region_a + empl + age + I(family_member^2) + married_flg*age, data=data_full1, 
             index=c("id","year"), model="within")
 summary(fixed_1)
 coeftest(fixed_1, vcov.=vcovHC(fixed_1, method="white1", type="HC0", cluster="group"))
 
-# empl=1 * age
-h <- rbind(c(0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0))
+# region = 2 level
+h <- rbind(c(0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0))
 wald.test.results = wald.test(b = coef(fixed), Sigma = vcovHC(fixed, method="white1", type="HC0", cluster="group"), L=h)
 wald.test.results
 # We can not reject the H0 of the Wald test, and therefore we can remove the variable without introducing statistically significant change in the model results
 
-# Step 2: the rest of the variables are statistically significant, but just to show that we are aware how to proceed, we will demonstrate
-#3 the process of removing another variable. The one with the highest t-test p-value now is family_member^2
-
-fixed_2 <-plm(income~family_member + education_level + married_flg + empl + age + married_flg*age, data=data_full1, 
+# Step 2: removing religion variable , as according to robust var/covar matrix it's insignificant
+fixed_2 <-plm(income_ln~family_member + education_level + married_flg + region_a + empl + age + I(family_member^2) + married_flg*age, data=data_full1, 
               index=c("id","year"), model="within")
 summary(fixed_2)
 coeftest(fixed_2, vcov.=vcovHC(fixed_2, method="white1", type="HC0", cluster="group"))
 
-# religion
-h <- rbind(c(0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0), c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0))
+# religion and region = 3 level
+h <- rbind(c(0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0),c(0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0))
 wald.test.results = wald.test(b = coef(fixed), Sigma = vcovHC(fixed, method="white1", type="HC0", cluster="group"), L=h)
 wald.test.results
-# We reject the H0 of the wald test, meaning that the new model is statistically significantly different from the origial one, and therefore we can not remove the variable.
+# We can not reject the H0 of the Wald test, and therefore we can remove the variable without introducing statistically significant change in the model results
 
+# Step 3: removing region = 3 level , as according to robust var/covar matrix it's insignificant
+data_full1$region_b <- as.factor(ifelse(data_full1$region_a == 3, 1, data_full1$region_a))
+levels(data_full1$region_b) <- c(1,4,5,6,7)
+table(data_full1$region_b)
 
+fixed_3 <-plm(income_ln~family_member + education_level + married_flg + region_b + empl + age + I(family_member^2) + married_flg*age, data=data_full1, 
+              index=c("id","year"), model="within")
+summary(fixed_3)
+coeftest(fixed_3, vcov.=vcovHC(fixed_3, method="white1", type="HC0", cluster="group"))
+
+# region = 3 level
+h <- rbind(c(0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0),c(0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0),c(0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0))
+wald.test.results = wald.test(b = coef(fixed), Sigma = vcovHC(fixed, method="white1", type="HC0", cluster="group"), L=h)
+wald.test.results
+# We  reject the H0 of the Wald test, and therefore we can not remove the variable without introducing statistically significant change in the model results. This means that the
+# previous model is the correct one
 
 #in order to incorporate the variables that are mostly time invariant into the model, this might make religion flag significant, depending on the research methodology
 # the between function works only for numeric variables
-
 data_full1$gender <- as.numeric(data_full1$gender)
 data_full1$religion <- as.numeric(data_full1$religion)
 
-cre <- plm(income ~ family_member + education_level + married_flg + empl + age + I(family_member^2) + married_flg*age +
+# Trying the Hausman-Taylor estimator in order to check how it behaves on the same data
+HT <-plm(income_ln~family_member + education_level + married_flg + region_a + Between(gender,na.rm=TRUE) +  Between(religion ,na.rm=TRUE) + empl + age + I(family_member^2) + married_flg*age, data=data_full1, 
+         index=c("id","year"), model="random", random.method = "ht")
+summary(HT)
+coeftest(HT, vcov.=vcovHC(HT, method="white1", type="HC0", cluster="group"))
+
+# # no interaction
+# HT_1 <-plm(income_ln~family_member + education_level + married_flg + empl + age + I(family_member^2), data=data_full1, 
+#          index=c("id","year"), model="random", random.method = "ht")
+# summary(HT_1)
+# coeftest(HT_1, vcov.=vcovHC(HT_1, method="white1", type="HC0", cluster="group"))
+# 
+# h <- rbind(c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1))
+# wald.test.results = wald.test(b = coef(HT), Sigma = vcovHC(HT, method="white1", type="HC0", cluster="group"), L=h)
+# wald.test.results
+# We can not reject the H0 of the Wald test, and therefore we can remove the variable without introducing statistically significant change in the model results
+# The rest of the variables are statistically significant
+
+cre <- plm(income_ln ~ family_member + education_level + married_flg + region_a + empl + age + I(family_member^2) + married_flg*age +
                     Between(religion ,na.rm=TRUE) + Between(gender,na.rm=TRUE),
                     data=data_full1,index=c("id","year"), model="random", random.method = "walhus")
 summary(cre)
 coeftest(cre, vcov.=vcovHC(cre, method="white1", type="HC0", cluster="group"))
 
-# no interaction
-cre_1 <- plm(income ~ family_member + education_level + married_flg + empl + age + I(family_member^2) +
-                      Between(religion,na.rm=TRUE) + Between(gender,na.rm=TRUE),
-                      data=data_full1,index=c("id","year"), model="random", random.method = "walhus")
-summary(cre_1)
-coeftest(cre_1, vcov.=vcovHC(cre_1, method="white1", type="HC0", cluster="group"))
+# # no interaction
+# cre_1 <- plm(income_ln ~ family_member + education_level + married_flg + empl + age + I(family_member^2) +
+#                       Between(religion,na.rm=TRUE) + Between(gender,na.rm=TRUE),
+#                       data=data_full1,index=c("id","year"), model="random", random.method = "walhus")
+# summary(cre_1)
+# coeftest(cre_1, vcov.=vcovHC(cre_1, method="white1", type="HC0", cluster="group"))
+# 
+# h <- rbind(c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1))
+# wald.test.results = wald.test(b = coef(cre), Sigma = vcovHC(cre, method="white1", type="HC0", cluster="group"), L=h)
+# wald.test.results
+# # We can not reject the H0 of the Wald test, and therefore we can remove the variable without introducing statistically significant change in the model results
+# 
+# # no religion
+# cre_2 <- plm(income_ln ~ family_member + education_level + married_flg + empl + age + I(family_member^2)+
+#                       Between(gender,na.rm=TRUE),
+#                       data=data_full1,index=c("id","year"), model="random", random.method = "walhus")
+# summary(cre_2)
+# coeftest(cre_2, vcov.=vcovHC(cre_2, method="white1", type="HC0", cluster="group"))
+# 
+# h <- rbind(c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1),c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0))
+# wald.test.results = wald.test(b = coef(cre), Sigma = vcovHC(cre, method="white1", type="HC0", cluster="group"), L=h)
+# wald.test.results
+# # We can not reject the H0 of the Wald test, and therefore we can remove the variable without introducing statistically significant change in the model results
+# # The rest of the variables are statistically significant
 
-h <- rbind(c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1))
-wald.test.results = wald.test(b = coef(cre), Sigma = vcovHC(cre, method="white1", type="HC0", cluster="group"), L=h)
-wald.test.results
-# We can not reject the H0 of the Wald test, and therefore we can remove the variable without introducing statistically significant change in the model results
-
-# no religion
-cre_2 <- plm(income ~ family_member + education_level + married_flg + empl + age + I(family_member^2)+
-                      Between(gender,na.rm=TRUE),
-                      data=data_full1,index=c("id","year"), model="random", random.method = "walhus")
-summary(cre_2)
-coeftest(cre_2, vcov.=vcovHC(cre_2, method="white1", type="HC0", cluster="group"))
-
-h <- rbind(c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1),c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0))
-wald.test.results = wald.test(b = coef(cre), Sigma = vcovHC(cre, method="white1", type="HC0", cluster="group"), L=h)
-wald.test.results
-# We can not reject the H0 of the Wald test, and therefore we can remove the variable without introducing statistically significant change in the model results
-# The rest of the variables are statistically significant
-
-HT <-plm(income~family_member + education_level + married_flg + empl + age + I(family_member^2) + married_flg*age, data=data_full1, 
-              index=c("id","year"), model="random", random.method = "ht")
-summary(HT)
-coeftest(HT, vcov.=vcovHC(HT, method="white1", type="HC0", cluster="group"))
-
-# no interaction
-HT_1 <-plm(income~family_member + education_level + married_flg + empl + age + I(family_member^2), data=data_full1, 
-         index=c("id","year"), model="random", random.method = "ht")
-summary(HT_1)
-coeftest(HT_1, vcov.=vcovHC(HT_1, method="white1", type="HC0", cluster="group"))
-
-h <- rbind(c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1))
-wald.test.results = wald.test(b = coef(HT), Sigma = vcovHC(HT, method="white1", type="HC0", cluster="group"), L=h)
-wald.test.results
-# We can not reject the H0 of the Wald test, and therefore we can remove the variable without introducing statistically significant change in the model results
-# The rest of the variables are statistically significant
 
 library(stargazer)
-stargazer(fixed, fixed_1, cre_2, HT_1, title="Results", align=TRUE, type = "text")
+stargazer(fixed, fixed_2, cre, HT, title="Results", align=TRUE, type = "text")
+
+curve(-0.038*x^2 + 0.469 * x, from=1, to=50, , xlab="family size", ylab="relative income")
+
+#unmarried
+fam_size <- c()
+relative_income <- c()
+for (x in 1:9) {
+  y <- -0.038*x^2 + 0.469 * x
+  relative_income <- append(relative_income, y)
+  fam_size <- append(fam_size, x)
+}
+
+#married
+fam_size_mar <- c("na")
+relative_income_mar <- c("na")
+for (x in 2:9) {
+  y <- -0.038*x^2 + 0.469 * x - 0.139
+  relative_income_mar <- append(relative_income_mar, y)
+  fam_size_mar <- append(fam_size_mar, x)
+}
+
+fam_to_inc <- as.data.frame(cbind(fam_size, relative_income, relative_income_mar))
+fam_to_inc
 
 
-# Struktura:
-#   - wstęp o problemie i ogólnie o zbiorze danych
-#   -przegląd literatury
-#   - Omówienie danych (zmiany które robiliśmy, słowniki, macierz korelacji)
-#   - Jak wybraliśmy model
-#   - procedura GETS
-#   - interpretacja i omówienie wyników
 
 
 
